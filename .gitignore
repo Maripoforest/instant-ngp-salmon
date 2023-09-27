@@ -18,3 +18,11 @@
 __pycache__
 .DS_Store
 imgui.ini
+
+data/nerf/salmon/
+
+data/nerf/salmon_all/salmon/
+
+data/nerf/salmon_all/salmon_baseline/
+
+data/nerf/salmon_all/
