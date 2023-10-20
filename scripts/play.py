@@ -95,7 +95,9 @@ def transfer_images(source_folder, destination_folder, num_images_to_transfer):
                 destination_image_path = os.path.join(destination_folder, f"{i:04d}.jpg")
                 shutil.copy(source_image_path, destination_image_path)
 
-def reload_scene(args, testbed):
+def reload_scene(args, testbed, reset = False):
+    if reset:
+        testbed.reset()
     testbed.clear_training_data()
     for file in args.files:
         scene_info = get_scene(file)
@@ -110,6 +112,16 @@ def reload_scene(args, testbed):
                 args.network = scene_info["network"]
         testbed.load_training_data(args.scene)
         print('reloaded')
+
+def save_snapshots(addr, testbed):
+    os.makedirs(os.path.dirname(addr), exist_ok=True)
+    testbed.save_snapshot(addr, False, False)
+
+def load_snapshots(addr, testbed):
+    scene_info = get_scene(addr)
+    if scene_info is not None:
+        addr = default_snapshot_filename(scene_info)
+    testbed.load_snapshot(addr)
 
 if __name__ == "__main__":
 	args = parse_args()
@@ -226,7 +238,9 @@ if __name__ == "__main__":
 	tqdm_last_update = 0
 	__t = time.monotonic()
 	losses = list()
-
+	snapshot_n = 2
+	snapshot_name = './snapshots/' + str(snapshot_n) + ".msgpack"
+	load_snapshots(snapshot_name, testbed)
 	if n_steps > 0:
 		with tqdm(desc="Training", total=n_steps, unit="steps") as t:
 			_t = time.monotonic()
@@ -241,38 +255,45 @@ if __name__ == "__main__":
 					else:
 						break	
 				
+                # Snapshot Player =========================================================
+				snapshot_name = './snapshots/' + str(snapshot_n) + ".msgpack"
+				if os.path.exists(snapshot_name):
+					load_snapshots(snapshot_name, testbed)
+					snapshot_n += 1 
+
 				# Data Reloader ===========================================================
-				if time.monotonic() - _t > args.training_interval:
-					print("training interval: ", args.training_interval)
-					if not args.mt:
-						ppl.step()
-						print("Sequential")
-					reload_scene(args, testbed)
-					_t = time.monotonic()
+				# if time.monotonic() - _t > args.training_interval:
+				# 	print("training interval: ", args.training_interval)
+				# 	if not args.mt:
+				# 		ppl.step()
+				# 	s_filename = './snapshots' + str(ppl.frame_n) + ".msgpack"
+				# 	save_snapshots(s_filename, testbed)
+				# 	reload_scene(args, testbed, reset=True)
+				# 	_t = time.monotonic()
     			# Data Reloader ===========================================================
 
 				# Update progress bar
-				if testbed.training_step < old_training_step or old_training_step == 0:
-					old_training_step = 0
-					t.reset()
+				# if testbed.training_step < old_training_step or old_training_step == 0:
+				# 	old_training_step = 0
+				# 	t.reset()
 
-				now = time.monotonic()
-				if now - tqdm_last_update > 0.1:
-					t.update(testbed.training_step - old_training_step)
-					losses.append(testbed.loss)
-					# print(testbed.loss)
-					t.set_postfix(loss=testbed.loss)
-					old_training_step = testbed.training_step
-					tqdm_last_update = now
-					if now - __t > 100:
-						print(sum(losses)/len(losses))
-						if args.delay:
-							filename = "./result.json"
-						else:
-							filename = "./result_no.json"
-						with open("result.json", "w") as f:
-							json.dump(losses, f)
-						break
+				# now = time.monotonic()
+				# if now - tqdm_last_update > 0.1:
+				# 	t.update(testbed.training_step - old_training_step)
+				# 	losses.append(testbed.loss)
+				# 	# print(testbed.loss)
+				# 	t.set_postfix(loss=testbed.loss)
+				# 	old_training_step = testbed.training_step
+				# 	tqdm_last_update = now
+				# 	if now - __t > 100:
+				# 		print(sum(losses)/len(losses))
+				# 		if args.delay:
+				# 			filename = "./result.json"
+				# 		else:
+				# 			filename = "./result_no.json"
+				# 		with open("result.json", "w") as f:
+				# 			json.dump(losses, f)
+				# 		break
 
 	ppl.stop = True
 	if args.mt:

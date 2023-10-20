@@ -95,7 +95,9 @@ def transfer_images(source_folder, destination_folder, num_images_to_transfer):
                 destination_image_path = os.path.join(destination_folder, f"{i:04d}.jpg")
                 shutil.copy(source_image_path, destination_image_path)
 
-def reload_scene(args, testbed):
+def reload_scene(args, testbed, reset = False):
+    if reset:
+        testbed.reset()
     testbed.clear_training_data()
     for file in args.files:
         scene_info = get_scene(file)
@@ -110,6 +112,16 @@ def reload_scene(args, testbed):
                 args.network = scene_info["network"]
         testbed.load_training_data(args.scene)
         print('reloaded')
+
+def save_snapshots(addr, testbed):
+    os.makedirs(os.path.dirname(addr), exist_ok=True)
+    testbed.save_snapshot(addr, False, False)
+
+def load_snapshots(addr, testbed):
+    scene_info = get_scene(addr)
+    if scene_info is not None:
+        addr = default_snapshot_filename(scene_info)
+    testbed.load_snapshot(addr)
 
 if __name__ == "__main__":
 	args = parse_args()
@@ -247,7 +259,9 @@ if __name__ == "__main__":
 					if not args.mt:
 						ppl.step()
 						print("Sequential")
-					reload_scene(args, testbed)
+					s_filename = './snapshots/' + str(ppl.frame_n) + ".msgpack"
+					save_snapshots(s_filename, testbed)
+					reload_scene(args, testbed, reset=True)
 					_t = time.monotonic()
     			# Data Reloader ===========================================================
 
@@ -264,15 +278,15 @@ if __name__ == "__main__":
 					t.set_postfix(loss=testbed.loss)
 					old_training_step = testbed.training_step
 					tqdm_last_update = now
-					if now - __t > 100:
-						print(sum(losses)/len(losses))
-						if args.delay:
-							filename = "./result.json"
-						else:
-							filename = "./result_no.json"
-						with open("result.json", "w") as f:
-							json.dump(losses, f)
-						break
+					# if now - __t > 100:
+					# 	print(sum(losses)/len(losses))
+					# 	if args.delay:
+					# 		filename = "./result.json"
+					# 	else:
+					# 		filename = "./result_no.json"
+					# 	with open("result.json", "w") as f:
+					# 		json.dump(losses, f)
+					# 	break
 
 	ppl.stop = True
 	if args.mt:
