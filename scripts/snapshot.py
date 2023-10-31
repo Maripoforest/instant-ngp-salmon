@@ -56,7 +56,9 @@ def parse_args():
 	parser.add_argument("--video_render_range", type=int, nargs=2, default=(-1, -1), metavar=("START_FRAME", "END_FRAME"), help="Limit output to frames between START_FRAME and END_FRAME (inclusive)")
 	parser.add_argument("--video_spp", type=int, default=8, help="Number of samples per pixel. A larger number means less noise, but slower rendering.")
 	parser.add_argument("--video_output", type=str, default="video.mp4", help="Filename of the output video (video.mp4) or video frames (video_%%04d.png).")
-	parser.add_argument("--training_interval", type=int, default=5, help="Training Interval")
+	parser.add_argument("--training_interval", type=int, default=25, help="Training Interval")
+	parser.add_argument("--reloader_step_n", type=int, default=2500, help="Steps per frame")
+	parser.add_argument("--starting_frame", type=int, default=1, help="Starting frame")
 
 	parser.add_argument("--save_mesh", default="", help="Output a marching-cubes based mesh from the NeRF or SDF model. Supports OBJ and PLY format.")
 	parser.add_argument("--marching_cubes_res", default=256, type=int, help="Sets the resolution for the marching cubes grid.")
@@ -215,6 +217,7 @@ if __name__ == "__main__":
 
 	# Dynamic Salmon ===========================================================
 	ppl = NeRFPipeline()
+	ppl.frame_n = args.starting_frame
 	if args.delay:
 		ppl.delay = True
 	else:
@@ -254,15 +257,14 @@ if __name__ == "__main__":
 						break	
 				
 				# Data Reloader ===========================================================
-				if time.monotonic() - _t > args.training_interval:
-					print("training interval: ", args.training_interval)
-					if not args.mt:
-						ppl.step()
-						print("Sequential")
+				if testbed.training_step >= args.reloader_step_n:
 					s_filename = './snapshots/' + str(ppl.frame_n) + ".msgpack"
 					save_snapshots(s_filename, testbed)
 					reload_scene(args, testbed, reset=True)
 					_t = time.monotonic()
+					if not args.mt:
+						ppl.step()
+						print("Sequential")
     			# Data Reloader ===========================================================
 
 				# Update progress bar

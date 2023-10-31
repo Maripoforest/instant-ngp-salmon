@@ -389,6 +389,7 @@ if __name__ == "__main__":
 			image = testbed.render(args.width or int(ref_transforms["w"]), args.height or int(ref_transforms["h"]), args.screenshot_spp, True)
 			os.makedirs(os.path.dirname(outname), exist_ok=True)
 			write_image(outname, image)
+			
 	elif args.screenshot_dir:
 		outname = os.path.join(args.screenshot_dir, args.scene + "_" + network_stem)
 		print(f"Rendering {outname}.png")

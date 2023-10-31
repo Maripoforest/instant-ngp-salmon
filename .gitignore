@@ -26,3 +26,13 @@ data/nerf/salmon_all/salmon/
 data/nerf/salmon_all/salmon_baseline/
 
 data/nerf/salmon_all/
+
+snapshots_allcams/video0010/
+
+snapshots_allcams/video0011/
+
+snapshots_delay/video0010/
+
+snapshots_delay/video0011/
+
+*.mp4
