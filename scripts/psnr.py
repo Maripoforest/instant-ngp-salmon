@@ -1,25 +1,42 @@
 import cv2
 import numpy as np
+import os
+import matplotlib.pyplot as plt
 
-# Load the two images (replace 'image1.jpg' and 'image2.jpg' with your image file paths)
-motherpath = "/home/socialai/instant-ngp-salmon/snapshots_delay/video0010"
+motherpath = "./bad/video0010/"
+goodpath = "./good/video0010/"
+truth = "./truth/"
+gp = list()
+bp = list()
 
-for i in range(50):
-    
-    image1 = cv2.imread('image1.jpg')
-    image2 = cv2.imread('image2.jpg')
+for i in range(30):
+    bpath = motherpath + str(i) + ".png"
+    print(bpath)
+    if not os.path.exists(bpath):
+        continue
+    else:
+        gpath = goodpath + str(i)+ ".png"
+        tpath = truth + str(i).zfill(4) + "/0010.jpg"
+        image_bad = cv2.imread(bpath)
+        image_good = cv2.imread(gpath)
+        image_truth = cv2.imread(tpath)
 
-# Ensure that the images have the same dimensions
-if image1.shape != image2.shape:
-    raise ValueError("The images must have the same dimensions.")
+        if image_bad.shape != image_truth.shape:
+            raise ValueError("Image shape does not match")
 
-# Calculate the Mean Squared Error (MSE)
-mse = np.mean((image1 - image2) ** 2)
+        gmse = np.mean((image_good - image_truth) ** 2)
+        bmse = np.mean((image_bad - image_truth) ** 2)
 
-# Calculate the maximum possible pixel value
-max_pixel_value = 255  # For 8-bit images
+        max_pixel_value = 255
 
-# Calculate the PSNR
-psnr = 10 * np.log10((max_pixel_value ** 2) / mse)
+        gpsnr = 10 * np.log10((max_pixel_value ** 2) / gmse)
+        bpsnr = 10 * np.log10((max_pixel_value ** 2) / bmse)
 
-print(f"PSNR: {psnr} dB")
+        gp.append(gpsnr)
+        bp.append(bpsnr)
+print(gp)
+print(bp)
+plt.plot(gp, label="NeRF psnr per image")
+plt.plot(bp, label="Delayed NeRF psnr per image")
+plt.legend()
+plt.show()

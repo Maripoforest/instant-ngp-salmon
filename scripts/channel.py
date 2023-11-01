@@ -16,7 +16,7 @@ class GE_Channel():
         self.lam = lam
         self.t = 1
 
-        self.gt_highrate = Exponential(100) # Generation time
+        self.gt_highrate = Exponential(1000) # Generation time
         self.delay_highrate = Exponential(200) # Time delay
 
         self.gt_lowrate = Exponential(50)
@@ -74,6 +74,9 @@ class GE_Channel():
         # print(delay)
         return generate_time, delay
 
+    def generate(self):
+        return self.gt.get_number()
+    
 lam = 0.01 # High latency to low latency
 miu = 0.02 # Low latency to high latency
 
@@ -82,13 +85,21 @@ for i in range(19):
     ge = GE_Channel(lam=lam, miu=miu)
     camera_list.append(ge)
 
+
+# MM1
 receive_series = np.zeros((19, 1))
 send_series = np.zeros((19, 1))
+last_dt = 0
 for i in range(30):
     send_frame = list()
     receive_frame = list()
     for ge in camera_list:
         g, d = ge.step()
+        pdt = int(last_dt/g)
+        while pdt >= 1:
+            next_g = ge.generate()
+            g += next_g
+            pdt = int(last_dt/g)
         send_frame.append(g)
         receive_frame.append(g+d)
     send_frame = np.array(send_frame)
@@ -101,6 +112,8 @@ for i in range(30):
 print(send_series[:, -1])
 print(receive_series[:, -1])
 
+
+
 # print(len(receive_series[:, -1]))
 # frames = np.zeros((19, int(max(receive_series[:, -1]))+1))
 
@@ -109,11 +122,11 @@ print(receive_series[:, -1])
 # with open('./camera_frameshot.json', 'w') as f:
 #     json.dump(int_list_2d, f)
 
-x = list()
-ge = GE_Channel(lam=lam, miu=miu)
-for i in range(1000):
-    g, _ = ge.step()
-    x.append(g)
-import matplotlib.pyplot as plt
-plt.plot(x)
-plt.show()
+# x = list()
+# ge = GE_Channel(lam=lam, miu=miu)
+# for i in range(1000):
+#     g, _ = ge.step()
+#     x.append(g)
+# import matplotlib.pyplot as plt
+# plt.plot(x)
+# plt.show()
