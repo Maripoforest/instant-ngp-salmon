@@ -11,7 +11,7 @@
 import argparse
 import os
 import commentjson as json
-
+import matplotlib.pyplot as plt
 import numpy as np
 
 import shutil
@@ -26,8 +26,10 @@ import pyngp as ngp # noqa
 
 import threading
 from pipeline import NeRFPipeline
-
 import cv2
+import torch
+from lpips import LPIPS
+
 
 def parse_args():
 	parser = argparse.ArgumentParser(description="Run instant neural graphics primitives with additional configuration & output options")
@@ -58,7 +60,10 @@ def parse_args():
 	parser.add_argument("--video_render_range", type=int, nargs=2, default=(-1, -1), metavar=("START_FRAME", "END_FRAME"), help="Limit output to frames between START_FRAME and END_FRAME (inclusive)")
 	parser.add_argument("--video_spp", type=int, default=8, help="Number of samples per pixel. A larger number means less noise, but slower rendering.")
 	parser.add_argument("--video_output", type=str, default="video.mp4", help="Filename of the output video (video.mp4) or video frames (video_%%04d.png).")
-	parser.add_argument("--training_interval", type=int, default=5, help="Training Interval")
+	parser.add_argument("--training_interval", type=int, default=25, help="Training Interval")
+	parser.add_argument("--reloader_step_n", type=int, default=2500, help="Steps per frame")
+	parser.add_argument("--starting_frame", type=int, default=1, help="Starting frame")
+	parser.add_argument("--dataset", type=str, default="salmon", help="dataset name")
 
 	parser.add_argument("--save_mesh", default="", help="Output a marching-cubes based mesh from the NeRF or SDF model. Supports OBJ and PLY format.")
 	parser.add_argument("--marching_cubes_res", default=256, type=int, help="Sets the resolution for the marching cubes grid.")
@@ -73,7 +78,7 @@ def parse_args():
 	parser.add_argument("--second_window", action="store_true", help="Open a second window containing a copy of the main output.")
 	parser.add_argument("--vr", action="store_true", help="Render to a VR headset.")
 	parser.add_argument("--delay", action="store_true", help="Async image pipeline")
-	parser.add_argument("--mt", action="store_true", help="Multithreading pipeline, false for discrete steps")
+	parser.add_argument("--not_reset", action="store_true", help="To reset for every frame")
 
 	parser.add_argument("--sharpen", default=0, help="Set amount of sharpening applied to NeRF training images. Range 0.0 to 1.0.")
 
@@ -125,14 +130,15 @@ def load_snapshots(addr, testbed):
         addr = default_snapshot_filename(scene_info)
     testbed.load_snapshot(addr)
 
-if __name__ == "__main__":
+def main_ngp(testbed = None, dataset = None, lpips_model = None):
 	args = parse_args()
-	if args.vr: # VR implies having the GUI running at the moment
-		args.gui = True
-	if args.mode:
-		print("Warning: the '--mode' argument is no longer in use. It has no effect. The mode is automatically chosen based on the scene.")
-
-	testbed = ngp.Testbed()
+	file = "data/nerf/" + dataset
+	args.files = [file]
+	args.dataset = dataset
+	args.train = True
+	
+	if testbed is None:
+		testbed = ngp.Testbed()
 	testbed.root_dir = ROOT_DIR
 
 	for file in args.files:
@@ -161,7 +167,6 @@ if __name__ == "__main__":
 		if args.vr:
 			testbed.init_vr()
 
-
 	if args.load_snapshot:
 		scene_info = get_scene(args.load_snapshot)
 		if scene_info is not None:
@@ -183,7 +188,6 @@ if __name__ == "__main__":
 	testbed.exposure = args.exposure
 	testbed.shall_train = args.train if args.gui else True
 
-
 	testbed.nerf.render_with_lens_distortion = True
 
 	network_stem = os.path.splitext(os.path.basename(args.network))[0] if args.network else "base"
@@ -196,63 +200,26 @@ if __name__ == "__main__":
 
 	if args.nerf_compatibility:
 		print(f"NeRF compatibility mode enabled")
-
-		# Prior nerf papers accumulate/blend in the sRGB
-		# color space. This messes not only with background
-		# alpha, but also with DOF effects and the likes.
-		# We support this behavior, but we only enable it
-		# for the case of synthetic nerf data where we need
-		# to compare PSNR numbers to results of prior work.
 		testbed.color_space = ngp.ColorSpace.SRGB
-
-		# No exponential cone tracing. Slightly increases
-		# quality at the cost of speed. This is done by
-		# default on scenes with AABB 1 (like the synthetic
-		# ones), but not on larger scenes. So force the
-		# setting here.
 		testbed.nerf.cone_angle_constant = 0
-
-		# Match nerf paper behaviour and train on a fixed bg.
 		testbed.nerf.training.random_bg_color = False
-
-	# Dynamic Salmon ===========================================================
-	ppl = NeRFPipeline()
-	if args.delay:
-		ppl.delay = True
-	else:
-		ppl.delay = False
-	ppl._use_old_data = False
-	
-	if args.mt:
-		pipeline_thread = threading.Thread(target=ppl.spinning)
-		pipeline_thread.start()
-    # Dynamic Salmon ===========================================================
-
 	old_training_step = 0
 	n_steps = args.n_steps
-
-	# If we loaded a snapshot, didn't specify a number of steps, _and_ didn't open a GUI,
-	# don't train by default and instead assume that the goal is to render screenshots,
-	# compute PSNR, or render a video.
+	
 	if n_steps < 0 and (not args.load_snapshot or args.gui):
-		n_steps = 35000
+		n_steps = 2500
 
 	tqdm_last_update = 0
 	__t = time.monotonic()
-	losses = list()
-	# snapshot_n = 67
-	snapshot_name = './snapshots/' + str(snapshot_n) + ".msgpack"
-	load_snapshots(snapshot_name, testbed)
-	with open('./data/nerf/salmon/transforms.json') as f:
+	with open('./data/nerf/' + dataset + '/transforms.json') as f:
 		camera_tfs = json.load(f)
-	with open('./camera_frameshot.json') as f:
-		frame_names = json.load(f)
-	save_frames = "%" in args.video_output	
-	start_frame, end_frame = args.video_render_range
 	resolution = [1920, 1080]
-	v_n_frames = 70
+	steak_08 = camera_tfs["frames"][12].get("transform_matrix")
+	steak_12 = camera_tfs["frames"][6].get("transform_matrix")
+	salmon_08 = camera_tfs["frames"][6].get("transform_matrix")
+	salmon_12 = camera_tfs["frames"][7].get("transform_matrix")
 	if n_steps > 0:
-		with tqdm(desc="Training", total=n_steps, unit="steps") as t:
+		with tqdm(desc="Training", total=n_steps, unit="steps") as t:	
 			_t = time.monotonic()
 			while testbed.frame():
 				if testbed.want_repl():
@@ -261,60 +228,51 @@ if __name__ == "__main__":
 					if args.gui:
 						testbed.shall_train = False
 					else:
-						break	
-				
-                # Video Savor =========================================================
-				snapshot_name = './snapshots/' + str(snapshot_n) + ".msgpack"
-				
-				if os.path.exists(snapshot_name):
-					load_snapshots(snapshot_name, testbed)
-					snapshot_n += 1 
-					
-					# Making the first video
-					testbed.fov_axis = 0
-					testbed.fov = camera_tfs["camera_angle_x"] * 180 / np.pi
-					f = camera_tfs["frames"][6] # camera 0010
-					cam_matrix = f.get("transform_matrix")
-					testbed.set_nerf_camera_matrix(np.matrix(cam_matrix)[:-1,:])
-					outname = os.path.join('./data/nerf/salmon/video0010/', str(snapshot_n) + ".png")
-					# outname = os.path.join('./data/nerf/salmon/video0010/', str(min(frame_names[snapshot_n])) + ".png")
-					print(f"rendering {outname}")
-					image = testbed.render(int(camera_tfs["w"]), int(camera_tfs["h"]))
-					os.makedirs(os.path.dirname(outname), exist_ok=True)
-					write_image(outname, image)
+						break
 
-					# Making the second video
-					# f = camera_tfs["frames"][1] # camera 0011
-					# cam_matrix = f.get("transform_matrix")
-					# testbed.set_nerf_camera_matrix(np.matrix(cam_matrix)[:-1,:])
-					# outname = os.path.join('./data/nerf/salmon/video0011/', str(snapshot_n) + ".png")
-					# # outname = os.path.join('./data/nerf/salmon/video0011/', str(min(frame_names[snapshot_n])) + ".png")
-					# print(f"rendering {outname}")
-					# image = testbed.render(int(camera_tfs["w"]), int(camera_tfs["h"]))
-					# os.makedirs(os.path.dirname(outname), exist_ok=True)
-					# write_image(outname, image)
-				
-				else:
-					break                  
-	# Generate the video ==================================
-	image_folder = './data/nerf/salmon/video0010/'
-	images = [img for img in os.listdir(image_folder) if img.endswith(".png")]
-	images.sort(key=lambda x: int(x.split(".")[0]))
-	frame_rate = 30
-	image = cv2.imread(os.path.join(image_folder, images[0]))
-	height, width, layers = image.shape
-	fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Use appropriate codec (e.g., 'XVID' for AVI)
-	video = cv2.VideoWriter('output.mp4', fourcc, frame_rate, (width, height))
-	for image in images:
-		img_path = os.path.join(image_folder, image)
-		frame = cv2.imread(img_path)
-		video.write(frame)
-	video.release()
-	cv2.destroyAllWindows()
+				# if testbed.training_step < old_training_step or old_training_step == 0:
+				# 	old_training_step = 0
+				# 	t.reset()
 
-	ppl.stop = True
-	if args.mt:
-		pipeline_thread.join()
+				now = time.monotonic()
+				if now - tqdm_last_update > 0.1:
+					t.update(testbed.training_step - old_training_step)
+					t.set_postfix(loss=testbed.loss)
+					old_training_step = testbed.training_step
+					tqdm_last_update = now
+
+	testbed.fov_axis = 0
+	testbed.fov = camera_tfs["camera_angle_x"] * 180 / np.pi
+	if args.dataset == "steak":	
+		cam_matrix = steak_08
+	else:
+		cam_matrix = salmon_08
+	testbed.set_nerf_camera_matrix(np.matrix(cam_matrix)[:-1,:])
+	# outname = os.path.join('./snapshots/video0008/', str(8).zfill(4) + ".png")
+	image = testbed.render(int(camera_tfs["w"]), int(camera_tfs["h"]))	
+	# os.makedirs(os.path.dirname(outname), exist_ok=True)
+	if image.shape[2] == 4:
+		img = np.copy(image)
+		# Unmultiply alpha
+		img[...,0:3] = np.divide(img[...,0:3], img[...,3:4], out=np.zeros_like(img[...,0:3]), where=img[...,3:4] != 0)
+		img[...,0:3] = linear_to_srgb(img[...,0:3])
+	else:
+		img = linear_to_srgb(img)
+	img = (np.clip(img, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)[:,:,:3]
+	img = img[900:1900, 900:1550, :]
+	image_truth = cv2.imread(f"./gt/0008.jpg")[900:1900, 900:1550, :]
+	image_truth = cv2.cvtColor(image_truth, cv2.COLOR_BGR2RGB)
+	if lpips_model is None:
+		lpips_model = LPIPS(net='alex')
+	lpips_truth = torch.tensor(image_truth.astype('float32') / 255).permute(2, 0, 1)
+	lpips_image = torch.tensor(img.astype('float32') / 255).permute(2, 0, 1)
+	# print(lpips_image[:, 0, 0])
+	# print(lpips_truth[:, 0, 0])
+	# plt.imshow(image_truth)
+	# plt.show()
+	lpips = lpips_model.forward(lpips_image, lpips_truth).flatten().detach().numpy().tolist()[0]
+	# print(lpips)
+	reward = 1 - lpips
 
 	if args.save_snapshot:
 		os.makedirs(os.path.dirname(args.save_snapshot), exist_ok=True)
@@ -448,4 +406,8 @@ if __name__ == "__main__":
 		if not save_frames:
 			os.system(f"ffmpeg -y -framerate {args.video_fps} -i tmp/%04d.jpg -c:v libx264 -pix_fmt yuv420p {args.video_output}")
 
-		shutil.rmtree("tmp")
+	return reward
+
+if __name__ == "__main__":
+	rwd = main_ngp(dataset="steak")
+	print(rwd)

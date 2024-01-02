@@ -5,6 +5,7 @@
 /figures
 /out
 /results
+/scripts/pic_results
 /tmp
 /venv
 /video
@@ -27,6 +28,14 @@ data/nerf/salmon_all/salmon_baseline/
 
 data/nerf/salmon_all/
 
+data/nerf/plc/
+
+data/nerf/plc2/
+
+data/nerf/steak/
+
+data/nerf/steakst/
+
 snapshots_allcams/video0010/
 
 snapshots_allcams/video0011/
@@ -36,3 +45,5 @@ snapshots_delay/video0010/
 snapshots_delay/video0011/
 
 *.mp4
+
+*.png

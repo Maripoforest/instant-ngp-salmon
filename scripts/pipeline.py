@@ -7,109 +7,96 @@ import time
 import random
 import json
 
-# import tqdm
 
 class NeRFPipeline:
     def __init__(self, delay_probability = 0.4) -> None:
         self.frame_n = 1
-        self.destination_folder = "./data/nerf/salmon/images"
-        self.num_images_to_transfer = 19
-        self.source_folder = "./data/nerf/salmon/frames/" + str(self.frame_n).zfill(4)
+        self.dataset = "salmon"
+        self.cameras_to_skip = [8, 12]
+        self.destination_folder = "./data/nerf/" + self.dataset + "/images/"
+        self.num_images_to_transfer = 21
+        self.parent_folder = "./data/nerf/" + self.dataset + "/frames/"
+        self.source_folder = self.parent_folder + str(self.frame_n).zfill(4)
         with open("./camera_frameshot.json") as f:
             self.frameshots = json.load(f)
         self.stop = False
         self.delay_probability = delay_probability
-        self.delay = True
+        self.delay = False
         self.sampling_interval = 1  # 0.25 miu
         self.intentional_delay = 3  # 0.15 
         # self.service_time = 0.2
-        # np.random.seed(0)
         self.list_p = 0
         self.service_time = np.random.normal(0.5, 0.1, 200)
         self._use_old_data = False
         self.eof = False 
+        self.init_images()
+
+    def init_images(self):
+        source_path = os.path.join(self.parent_folder, str(1).zfill(4))
+        if os.path.exists(self.destination_folder):
+            shutil.rmtree(self.destination_folder)
+        os.makedirs(self.destination_folder)
+        if self.delay:
+            for i in range(2):
+                    if i in self.cameras_to_skip:
+                        continue
+                    else:
+                        source_image_path = os.path.join(source_path, f"{i:04d}.jpg")
+                        if os.path.exists(source_image_path):
+                            destination_image_path = os.path.join(self.destination_folder, f"{i:04d}.jpg")
+                            if os.path.exists(destination_image_path):
+                                shutil.os.remove(destination_image_path)
+                            shutil.copy(source_image_path, destination_image_path)
+        else:
+            frame_name = str(self.frame_n).zfill(4)    
+            self.source_folder = os.path.join(self.parent_folder + frame_name) 
+            print(self.source_folder)
+            if not os.path.exists(self.source_folder):
+                print("source_folder does not exist")
+            print("normal transmission")
+            self.transfer_images()
+        self.frame_n += 1
+    
+    def set_dataset(self, dataset):
+        self.dataset = dataset
+        self.destination_folder = "./data/nerf/" + self.dataset + "/images/"
+        self.parent_folder = "./data/nerf/" + self.dataset + "/frames/"
+        print(self.dataset)
+        print("dataset: ", self.dataset)
+        self.init_images()
 
 
     def transfer_images(self):
         source_path = self.source_folder
         if os.path.isdir(source_path):
-            # Service time =====================================
-            # time.sleep(self.service_time[self.list_p])
-            # self.list_p += 1
-            # if self.list_p >= len(self.service_time):
-            #     self.list_p = 0
-            # Service time =====================================
-
             for i in range(self.num_images_to_transfer):
-                if i == 10 or i == 11:
+                if i in self.cameras_to_skip:
                     continue
                 else:
                     source_image_path = os.path.join(source_path, f"{i:04d}.jpg")
                     if os.path.exists(source_image_path):
                         destination_image_path = os.path.join(self.destination_folder, f"{i:04d}.jpg")
-                        if os.path.exists(destination_image_path):
-                            shutil.os.remove(destination_image_path)
+                        # if os.path.exists(destination_image_path):
+                        #     shutil.os.remove(destination_image_path)
                         shutil.copy(source_image_path, destination_image_path)
-                    
-    def transfer_images_with_delay(self):
-        source_path = self.source_folder
-        to_delay = list()
+                        # print(source_image_path)
 
-        if os.path.isdir(source_path):
-            for i in range(self.num_images_to_transfer):
-                if random.random() < self.delay_probability:
-                    to_delay.append(i)
-                else:
-                    source_image_path = os.path.join(source_path, f"{i:04d}.jpg")
-                    if os.path.exists(source_image_path):
-                        destination_image_path = os.path.join(self.destination_folder, f"{i:04d}.jpg")
-                        if os.path.exists(destination_image_path):
-                            shutil.os.remove(destination_image_path)
-                        shutil.copy(source_image_path, destination_image_path) 
-                        # print(destination_image_path)
-
-            # print("Consumed Time: ", time.time() - _t)
-            _t = time.time()
-            # print(to_delay)
-
-            if len(to_delay) > 0:
-                time.sleep(self.intentional_delay)
-                for i in to_delay:   
-                    source_image_path = os.path.join(source_path, f"{i:04d}.jpg")
-                    if os.path.exists(source_image_path):
-                        destination_image_path = os.path.join(self.destination_folder, f"{i:04d}.jpg")
-                        if os.path.exists(destination_image_path):
-                            shutil.os.remove(destination_image_path)
-                        # print(destination_image_path)
-                        shutil.copy(source_image_path, destination_image_path)
-
-    def get_image_batch_cb(self):
-        frame_name = str(self.frame_n).zfill(4)    
-        self.source_folder = "./data/nerf/salmon/frames/" + frame_name    
-        if self.delay:   
-            # print("delayed transmission")
-            self.transfer_images_with_delay()
-        else:
-            # print("NO DELAY")
-            self.transfer_images()
-        self.frame_n += 1
-      
     def step(self):
         if not self.eof:
-            if self.delay:  
+            if self.delay: 
                 print("delayed transmission")
-                
                 if os.path.exists(self.destination_folder):
                     shutil.rmtree(self.destination_folder)
                 os.makedirs(self.destination_folder)
-
                 for i in range(self.num_images_to_transfer):
-                    if i == 10 or i == 11:
+                    n_to_transfer = int(self.frameshots["frames"][self.frame_n][i])
+                    if i in self.cameras_to_skip:
+                        continue
+                    elif n_to_transfer == 0:
                         continue
                     else:
-                        frame_name = str(self.frameshots[self.frame_n][i]).zfill(4)
-                        print(frame_name)   
-                        self.source_folder = "./data/nerf/salmon/frames/" + frame_name       
+                        frame_name = str(n_to_transfer).zfill(4)
+                        self.source_folder = self.parent_folder + frame_name      
                         source_path = self.source_folder
                         if os.path.isdir(source_path):
                         # The no-data method
@@ -121,33 +108,26 @@ class NeRFPipeline:
                                 #     shutil.os.remove(destination_image_path)            
                                 shutil.copy(source_image_path, destination_image_path)
 
-                    
             else:
-                # TODO: Markovian delay added here Birth and death process 
                 frame_name = str(self.frame_n).zfill(4)    
-                self.source_folder = "./data/nerf/salmon/frames/" + frame_name 
+                self.source_folder = os.path.join(self.parent_folder + frame_name) 
+                if os.path.exists(self.destination_folder):
+                    shutil.rmtree(self.destination_folder)
+                os.makedirs(self.destination_folder)
+                print(self.source_folder)
                 if not os.path.exists(self.source_folder):
-                    self.eof = True
-                    self.stop = True
-                    return
+                    print("f{self.source_folder} does not exist")
                 print("normal transmission")
                 self.transfer_images()
             self.frame_n += 1
         else:
-            print("EOF")
+            print(self.source_folder)
+            print("EOF Stop")
 
     
-    def spinning(self):
-        while not self.stop:
-            time.sleep(self.sampling_interval)
-            self.get_image_batch_cb()        
-
-    
-
 if __name__ == '__main__':
     ppl = NeRFPipeline()
     ppl.delay = False
-    ppl.spinning()
 
     # 1. Per camera comparison at same frame 
     # 2. Object with different speed
@@ -164,6 +144,4 @@ if __name__ == '__main__':
 
     # min AOI(pi)
     # s.t. sampling interval < n
-    #      
-
-    # 0.00318
+  

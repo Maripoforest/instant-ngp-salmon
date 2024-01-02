@@ -26,6 +26,8 @@ import pyngp as ngp # noqa
 
 import threading
 from pipeline import NeRFPipeline
+from psnr import compute_lpips
+
 
 def parse_args():
 	parser = argparse.ArgumentParser(description="Run instant neural graphics primitives with additional configuration & output options")
@@ -59,6 +61,7 @@ def parse_args():
 	parser.add_argument("--training_interval", type=int, default=25, help="Training Interval")
 	parser.add_argument("--reloader_step_n", type=int, default=2500, help="Steps per frame")
 	parser.add_argument("--starting_frame", type=int, default=1, help="Starting frame")
+	parser.add_argument("--dataset", type=str, default="salmon", help="dataset name")
 
 	parser.add_argument("--save_mesh", default="", help="Output a marching-cubes based mesh from the NeRF or SDF model. Supports OBJ and PLY format.")
 	parser.add_argument("--marching_cubes_res", default=256, type=int, help="Sets the resolution for the marching cubes grid.")
@@ -73,7 +76,7 @@ def parse_args():
 	parser.add_argument("--second_window", action="store_true", help="Open a second window containing a copy of the main output.")
 	parser.add_argument("--vr", action="store_true", help="Render to a VR headset.")
 	parser.add_argument("--delay", action="store_true", help="Async image pipeline")
-	parser.add_argument("--mt", action="store_true", help="Multithreading pipeline, false for discrete steps")
+	parser.add_argument("--not_reset", action="store_true", help="To reset for every frame")
 
 	parser.add_argument("--sharpen", default=0, help="Set amount of sharpening applied to NeRF training images. Range 0.0 to 1.0.")
 
@@ -127,10 +130,25 @@ def load_snapshots(addr, testbed):
 
 if __name__ == "__main__":
 	args = parse_args()
+
 	if args.vr: # VR implies having the GUI running at the moment
 		args.gui = True
 	if args.mode:
 		print("Warning: the '--mode' argument is no longer in use. It has no effect. The mode is automatically chosen based on the scene.")
+
+	# Dynamic Salmon ===========================================================
+	ppl = NeRFPipeline()
+	ppl.frame_n = args.starting_frame
+	
+	ppl.set_dataset(args.dataset)
+		
+	if args.delay:
+		ppl.delay = True
+	else:
+		ppl.delay = False
+	ppl._use_old_data = False
+	
+    # Dynamic Salmon ===========================================================
 
 	testbed = ngp.Testbed()
 	testbed.root_dir = ROOT_DIR
@@ -161,7 +179,6 @@ if __name__ == "__main__":
 		if args.vr:
 			testbed.init_vr()
 
-
 	if args.load_snapshot:
 		scene_info = get_scene(args.load_snapshot)
 		if scene_info is not None:
@@ -182,7 +199,6 @@ if __name__ == "__main__":
 	testbed.nerf.sharpen = float(args.sharpen)
 	testbed.exposure = args.exposure
 	testbed.shall_train = args.train if args.gui else True
-
 
 	testbed.nerf.render_with_lens_distortion = True
 
@@ -215,20 +231,6 @@ if __name__ == "__main__":
 		# Match nerf paper behaviour and train on a fixed bg.
 		testbed.nerf.training.random_bg_color = False
 
-	# Dynamic Salmon ===========================================================
-	ppl = NeRFPipeline()
-	ppl.frame_n = args.starting_frame
-	if args.delay:
-		ppl.delay = True
-	else:
-		ppl.delay = False
-	ppl._use_old_data = False
-	
-	if args.mt:
-		pipeline_thread = threading.Thread(target=ppl.spinning)
-		pipeline_thread.start()
-    # Dynamic Salmon ===========================================================
-
 	old_training_step = 0
 	n_steps = args.n_steps
 
@@ -241,9 +243,23 @@ if __name__ == "__main__":
 	tqdm_last_update = 0
 	__t = time.monotonic()
 	losses = list()
-
+	if args.starting_frame == 1:
+		ok = False
+	else:
+		ok = True
+	os.makedirs("./snapshots/", exist_ok=ok)
+	with open("./snapshots/args.json", "w+") as f:
+		json.dump(vars(args), f)
+	with open('./data/nerf/steak/transforms.json') as f:
+		camera_tfs = json.load(f)
+	resolution = [1920, 1080]
+	steak_08 = camera_tfs["frames"][12].get("transform_matrix")
+	steak_12 = camera_tfs["frames"][6].get("transform_matrix")
+	salmon_08 = camera_tfs["frames"][6].get("transform_matrix")
+	salmon_12 = camera_tfs["frames"][7].get("transform_matrix")
 	if n_steps > 0:
-		with tqdm(desc="Training", total=n_steps, unit="steps") as t:
+		with tqdm(desc="Training", total=args.reloader_step_n, unit="steps") as t:
+			
 			_t = time.monotonic()
 			# TODO: Where does the training start?
 			while testbed.frame():
@@ -255,16 +271,45 @@ if __name__ == "__main__":
 						testbed.shall_train = False
 					else:
 						break	
-				
+				if ppl.frame_n == 27:
+					break
 				# Data Reloader ===========================================================
 				if testbed.training_step >= args.reloader_step_n:
-					s_filename = './snapshots/' + str(ppl.frame_n) + ".msgpack"
-					save_snapshots(s_filename, testbed)
-					reload_scene(args, testbed, reset=True)
-					_t = time.monotonic()
-					if not args.mt:
-						ppl.step()
-						print("Sequential")
+					# s_filename = './snapshots/' + str(ppl.frame_n-1) + ".msgpack"
+					# save_snapshots(s_filename, testbed)
+					testbed.fov_axis = 0
+					testbed.fov = camera_tfs["camera_angle_x"] * 180 / np.pi
+					if args.dataset == "steak":	
+						cam_matrix = steak_08
+					else:
+						cam_matrix = salmon_08
+					testbed.set_nerf_camera_matrix(np.matrix(cam_matrix)[:-1,:])
+					outname = os.path.join('./snapshots/video0008/', str(ppl.frame_n-1) + ".png")
+					# outname = os.path.join('./video0010/', str(min(frame_names[snapshot_n])) + ".png")
+					print(f"rendering {outname}")
+					image = testbed.render(int(camera_tfs["w"]), int(camera_tfs["h"]))	
+					os.makedirs(os.path.dirname(outname), exist_ok=True)
+					write_image(outname, image)
+
+					# 0012 ===========================================================
+					# testbed.fov_axis = 0
+					# testbed.fov = camera_tfs["camera_angle_x"] * 180 / np.pi
+					# if args.dataset == "steak":	
+					# 	cam_matrix = steak_12
+					# else:
+					# 	cam_matrix = salmon_12
+					# testbed.set_nerf_camera_matrix(np.matrix(cam_matrix)[:-1,:])
+					# outname = os.path.join('./snapshots/video0012/', str(ppl.frame_n-1) + ".png")
+					# # outname = os.path.join('./video0010/', str(min(frame_names[snapshot_n])) + ".png")
+					# print(f"rendering {outname}")
+					# image = testbed.render(int(camera_tfs["w"]), int(camera_tfs["h"]))
+					# os.makedirs(os.path.dirname(outname), exist_ok=True)
+					# write_image(outname, image)
+
+					reload_scene(args, testbed, reset=not args.not_reset)
+					ppl.step()
+					print("Sequential")
+						
     			# Data Reloader ===========================================================
 
 				# Update progress bar
@@ -291,8 +336,9 @@ if __name__ == "__main__":
 					# 	break
 
 	ppl.stop = True
-	if args.mt:
-		pipeline_thread.join()
+	lpips = compute_lpips()
+	shutil.rmtree('./snapshots/')
+
 
 	if args.save_snapshot:
 		os.makedirs(os.path.dirname(args.save_snapshot), exist_ok=True)
