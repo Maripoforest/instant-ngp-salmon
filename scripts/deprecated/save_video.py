@@ -27,6 +27,8 @@ import pyngp as ngp # noqa
 import threading
 from pipeline import NeRFPipeline
 
+import cv2
+
 def parse_args():
 	parser = argparse.ArgumentParser(description="Run instant neural graphics primitives with additional configuration & output options")
 
@@ -241,59 +243,79 @@ if __name__ == "__main__":
 	snapshot_n = 2
 	snapshot_name = './snapshots/' + str(snapshot_n) + ".msgpack"
 	load_snapshots(snapshot_name, testbed)
+	# with open('./data/nerf/steak/transforms.json') as f:
+	# 	camera_tfs = json.load(f)
+	with open('./data/nerf/salmon/transforms.json') as f:
+		camera_tfs = json.load(f)
+	with open('./camera_frameshot.json') as f:
+		frame_names = json.load(f)
+	save_frames = "%" in args.video_output	
+	start_frame, end_frame = args.video_render_range
+	resolution = [1920, 1080]
+	v_n_frames = 70
 	if n_steps > 0:
 		with tqdm(desc="Training", total=n_steps, unit="steps") as t:
 			_t = time.monotonic()
-			# TODO: Where does the training start?
 			while testbed.frame():
 				if testbed.want_repl():
 					repl(testbed)
-				# What will happen when training is done?
 				if testbed.training_step >= n_steps:
 					if args.gui:
 						testbed.shall_train = False
 					else:
 						break	
-				
-                # Snapshot Player =========================================================
+
+                # Video Savor =========================================================
+				if snapshot_n == 58:
+					snapshot_n += 1
 				snapshot_name = './snapshots/' + str(snapshot_n) + ".msgpack"
+				
 				if os.path.exists(snapshot_name):
 					load_snapshots(snapshot_name, testbed)
+					
+					# Making the first video
+					testbed.fov_axis = 0
+					testbed.fov = camera_tfs["camera_angle_x"] * 180 / np.pi
+					f = camera_tfs["frames"][6] # camera 0008 , 6 for salmon 12 for steak
+					# f = camera_tfs["frames"][7] # camera 0012 , 7 for salmon 6 for steak
+					cam_matrix = f.get("transform_matrix")
+					testbed.set_nerf_camera_matrix(np.matrix(cam_matrix)[:-1,:])
+					outname = os.path.join('./video0011/', str(snapshot_n) + ".png")
+					# outname = os.path.join('./video0010/', str(min(frame_names[snapshot_n])) + ".png")
+					print(f"rendering {outname}")
+					image = testbed.render(int(camera_tfs["w"]), int(camera_tfs["h"]))
+					os.makedirs(os.path.dirname(outname), exist_ok=True)
+					write_image(outname, image)
 					snapshot_n += 1 
 
-				# Data Reloader ===========================================================
-				# if time.monotonic() - _t > args.training_interval:
-				# 	print("training interval: ", args.training_interval)
-				# 	if not args.mt:
-				# 		ppl.step()
-				# 	s_filename = './snapshots' + str(ppl.frame_n) + ".msgpack"
-				# 	save_snapshots(s_filename, testbed)
-				# 	reload_scene(args, testbed, reset=True)
-				# 	_t = time.monotonic()
-    			# Data Reloader ===========================================================
-
-				# Update progress bar
-				# if testbed.training_step < old_training_step or old_training_step == 0:
-				# 	old_training_step = 0
-				# 	t.reset()
-
-				# now = time.monotonic()
-				# if now - tqdm_last_update > 0.1:
-				# 	t.update(testbed.training_step - old_training_step)
-				# 	losses.append(testbed.loss)
-				# 	# print(testbed.loss)
-				# 	t.set_postfix(loss=testbed.loss)
-				# 	old_training_step = testbed.training_step
-				# 	tqdm_last_update = now
-				# 	if now - __t > 100:
-				# 		print(sum(losses)/len(losses))
-				# 		if args.delay:
-				# 			filename = "./result.json"
-				# 		else:
-				# 			filename = "./result_no.json"
-				# 		with open("result.json", "w") as f:
-				# 			json.dump(losses, f)
-				# 		break
+					# Making the second video
+					# f = camera_tfs["frames"][1] # camera 0011
+					# cam_matrix = f.get("transform_matrix")
+					# testbed.set_nerf_camera_matrix(np.matrix(cam_matrix)[:-1,:])
+					# outname = os.path.join('./video0011/', str(snapshot_n) + ".png")
+					# # outname = os.path.join('./video0011/', str(min(frame_names[snapshot_n])) + ".png")
+					# print(f"rendering {outname}")
+					# image = testbed.render(int(camera_tfs["w"]), int(camera_tfs["h"]))
+					# os.makedirs(os.path.dirname(outname), exist_ok=True)
+					# write_image(outname, image)
+				
+				else:
+					break                  
+	# Generate the video ==================================
+	# image_folder = './data/nerf/salmon/video0010/'
+	# images = [img for img in os.listdir(image_folder) if img.endswith(".png")]
+	# images.sort(key=lambda x: int(x.split(".")[0]))
+	# frame_rate = 30
+	# image = cv2.imread(os.path.join(image_folder, images[0]))
+	# height, width, layers = image.shape
+	# fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Use appropriate codec (e.g., 'XVID' for AVI)
+	# video = cv2.VideoWriter('output.mp4', fourcc, frame_rate, (width, height))
+	# for image in images:
+	# 	img_path = os.path.join(image_folder, image)
+	# 	frame = cv2.imread(img_path)
+	# 	video.write(frame)
+	# video.release()
+	# cv2.destroyAllWindows()
 
 	ppl.stop = True
 	if args.mt:
@@ -389,7 +411,6 @@ if __name__ == "__main__":
 			image = testbed.render(args.width or int(ref_transforms["w"]), args.height or int(ref_transforms["h"]), args.screenshot_spp, True)
 			os.makedirs(os.path.dirname(outname), exist_ok=True)
 			write_image(outname, image)
-			
 	elif args.screenshot_dir:
 		outname = os.path.join(args.screenshot_dir, args.scene + "_" + network_stem)
 		print(f"Rendering {outname}.png")
