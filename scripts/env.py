@@ -188,7 +188,7 @@ class MatrixEnv(gym.Env):
         self.state = None
         self.set_dataset(dataset)
         self.num_images_to_transfer = 21
-        self.task = 80
+        self.task = 86
         self.step_counter = 0
         self.lpips_model = LPIPS(net='alex')
 

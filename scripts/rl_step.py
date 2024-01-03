@@ -29,6 +29,7 @@ from pipeline import NeRFPipeline
 import cv2
 import torch
 from lpips import LPIPS
+from skimage.metrics import structural_similarity as ssim
 
 
 def parse_args():
@@ -130,7 +131,24 @@ def load_snapshots(addr, testbed):
         addr = default_snapshot_filename(scene_info)
     testbed.load_snapshot(addr)
 
-def main_ngp(testbed = None, dataset = None, lpips_model = None):
+def cal_psnr(img1, img2):
+    mse = np.mean((img1 - img2) ** 2)
+    if mse == 0:
+        return float('inf')  # PSNR is infinite if the images are identical
+    max_pixel_value = 255.0
+    psnr_value = 20 * np.log10(max_pixel_value / np.sqrt(mse))
+    return psnr_value
+
+def cal_ssim(image1, image2):
+    gray_image1 = cv2.cvtColor(image1, cv2.COLOR_BGR2GRAY)
+    gray_image2 = cv2.cvtColor(image2, cv2.COLOR_BGR2GRAY)
+    height, width = gray_image1.shape
+    gray_image2 = cv2.resize(gray_image2, (width, height))
+    ssim_value, _ = ssim(gray_image1, gray_image2, full=True)
+
+    return ssim_value
+
+def main_ngp(testbed = None, dataset = None, lpips_model = None, rl = True):
 	args = parse_args()
 	file = "data/nerf/" + dataset
 	args.files = [file]
@@ -262,6 +280,8 @@ def main_ngp(testbed = None, dataset = None, lpips_model = None):
 	img = img[900:1900, 900:1550, :]
 	image_truth = cv2.imread(f"./gt/0008.jpg")[900:1900, 900:1550, :]
 	image_truth = cv2.cvtColor(image_truth, cv2.COLOR_BGR2RGB)
+	p = cal_psnr(img, image_truth)
+	s = cal_ssim(img, image_truth)
 	if lpips_model is None:
 		lpips_model = LPIPS(net='alex')
 	lpips_truth = torch.tensor(image_truth.astype('float32') / 255).permute(2, 0, 1)
@@ -405,8 +425,10 @@ def main_ngp(testbed = None, dataset = None, lpips_model = None):
 
 		if not save_frames:
 			os.system(f"ffmpeg -y -framerate {args.video_fps} -i tmp/%04d.jpg -c:v libx264 -pix_fmt yuv420p {args.video_output}")
-
-	return reward
+	if rl:
+		return reward
+	else:
+		return p, s, lpips
 
 if __name__ == "__main__":
 	rwd = main_ngp(dataset="steak")
