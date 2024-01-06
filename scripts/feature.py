@@ -166,8 +166,7 @@ class FeatureEvaluator:
                     if self.count_images() == 0:
                         reward = -1
                     else:
-                        reward = main_ngp(dataset=self.dataset, lpips_model=self.lpips)
-                        reward = (reward - 0.5) * 10
+                        reward = main_ngp(dataset=self.dataset, lpips_model=self.lpips, rl=False)
                     episode_reward.append(reward)
                 output.append(episode_reward)
                 t = time.time()

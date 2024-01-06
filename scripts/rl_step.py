@@ -292,7 +292,7 @@ def main_ngp(testbed = None, dataset = None, lpips_model = None, rl = True):
 	# plt.show()
 	lpips = lpips_model.forward(lpips_image, lpips_truth).flatten().detach().numpy().tolist()[0]
 	# print(lpips)
-	reward = 1 - lpips
+	reward = - lpips
 
 	if args.save_snapshot:
 		os.makedirs(os.path.dirname(args.save_snapshot), exist_ok=True)

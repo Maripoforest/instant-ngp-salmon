@@ -179,8 +179,11 @@ class CountEnv(gym.Env):
 
 class MatrixEnv(gym.Env):
     def __init__(self, dataset = "steak"):
+        # self.observation_space = spaces.Box(
+        #     low=0, high=1, shape=(26, 21), dtype=float  # U matrix with an extra row
+        # )
         self.observation_space = spaces.Box(
-            low=0, high=1, shape=(26, 21), dtype=float  # U matrix with an extra row
+            low=0, high=1, shape=(25, 21), dtype=int  # U matrix with an extra row
         )
         self.action_space = spaces.Discrete(25)
         self.cameras_to_skip = [8, 12]
@@ -331,12 +334,13 @@ class MatrixEnv(gym.Env):
     def reset(self):
         self.build_channel(l1=10, l2=10, l3=20, l4=20)
         _U = self.stepper()
-        obs = np.zeros((26, 21), dtype=float)
-        obs[0, 0] = self.camera_frameshot["para"][0] / 1000.0
-        obs[0, 1] = self.camera_frameshot["para"][1] / 1000.0
-        obs[0, 2] = self.camera_frameshot["para"][2] / 1000.0
-        obs[0, 3] = self.camera_frameshot["para"][3] / 1000.0
-        obs[1:, :] = _U
+        obs = _U
+        # obs = np.zeros((26, 21), dtype=float)
+        # obs[0, 0] = self.camera_frameshot["para"][0] / 1000.0
+        # obs[0, 1] = self.camera_frameshot["para"][1] / 1000.0
+        # obs[0, 2] = self.camera_frameshot["para"][2] / 1000.0
+        # obs[0, 3] = self.camera_frameshot["para"][3] / 1000.0
+        # obs[1:, :] = _U
         self.state = obs
 
         return self.state
@@ -350,7 +354,6 @@ class MatrixEnv(gym.Env):
             with open('nul' if sys.platform == 'win32' else '/dev/null', 'w') as null_file:
                 with redirect_stdout(null_file):
                     reward = main_ngp(dataset=self.dataset, lpips_model=self.lpips_model)
-            reward = (reward - 0.5) * 10
         print("action: ", action)
         print("reward: ", reward)
         info = {}
