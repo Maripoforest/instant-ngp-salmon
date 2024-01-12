@@ -148,7 +148,7 @@ def cal_ssim(image1, image2):
 
     return ssim_value
 
-def main_ngp(testbed = None, dataset = None, lpips_model = None, rl = True):
+def main_ngp(testbed = None, dataset = None, lpips_model = None, rl = True, render = None):
 	args = parse_args()
 	file = "data/nerf/" + dataset
 	args.files = [file]
@@ -266,9 +266,12 @@ def main_ngp(testbed = None, dataset = None, lpips_model = None, rl = True):
 	else:
 		cam_matrix = salmon_08
 	testbed.set_nerf_camera_matrix(np.matrix(cam_matrix)[:-1,:])
-	# outname = os.path.join('./snapshots/video0008/', str(8).zfill(4) + ".png")
 	image = testbed.render(int(camera_tfs["w"]), int(camera_tfs["h"]))	
 	# os.makedirs(os.path.dirname(outname), exist_ok=True)
+	if render is not None:
+		outname = os.path.join('./temp_results/', str(render).zfill(4) + ".png")
+		os.makedirs(os.path.dirname(outname), exist_ok=True)
+		write_image(outname, image)
 	if image.shape[2] == 4:
 		img = np.copy(image)
 		# Unmultiply alpha
@@ -278,8 +281,13 @@ def main_ngp(testbed = None, dataset = None, lpips_model = None, rl = True):
 		img = linear_to_srgb(img)
 	img = (np.clip(img, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)[:,:,:3]
 	img = img[900:1900, 900:1550, :]
+	img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 	image_truth = cv2.imread(f"./gt/0008.jpg")[900:1900, 900:1550, :]
-	image_truth = cv2.cvtColor(image_truth, cv2.COLOR_BGR2RGB)
+	# image_truth = cv2.cvtColor(image_truth, cv2.COLOR_BGR2RGB)
+	# cv2.imshow("img", img)
+	# cv2.imshow("gt", image_truth)
+	# cv2.waitKey(0)
+	# cv2.destroyAllWindows()
 	p = cal_psnr(img, image_truth)
 	s = cal_ssim(img, image_truth)
 	if lpips_model is None:

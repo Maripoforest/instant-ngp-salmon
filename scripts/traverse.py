@@ -12,29 +12,33 @@ def traverse_and_get_data(folder_path):
             with open(file_path, 'r') as file:
                 try:
                     json_data = json.load(file)
+                    slice_ = []
                     if isinstance(json_data, list) and len(json_data) > 0:
                         # Assuming the structure is [x, 25], and we are interested in [1, 25]
                         for j in range(len(json_data)):
-                            data = json_data[j]  # Adjust this if needed
-                            all_data.append(data)
+                            data = json_data[j][2]  # Adjust this if needed
+                            slice_.append(data)
+                        all_data.append(slice_)
+                            
                 except json.JSONDecodeError as e:
                     print(f"Error decoding JSON in file {filename}: {e}")
 
     return all_data
 
 def calculate_average(data):
+    print(len(data))
     if data:
         # Convert the list of lists to a numpy array for easy calculation
         data_array = np.array(data)
         # Calculate the average along axis 0
         average_data = np.mean(data_array, axis=0)
-        average_data = average_data * 0.1 + 0.5
+        average_data = average_data
         return average_data.tolist()
     else:
         return []
 
 # Replace 'your_folder_path' with the path to your folder containing JSON files
-folder_path = './results/temp'
+folder_path = './results/'
 
 # folder_path = './long'
 # folder_path = './results/150'

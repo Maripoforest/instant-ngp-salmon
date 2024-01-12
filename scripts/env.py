@@ -228,6 +228,7 @@ class MatrixEnv(gym.Env):
         camera_list = list()
         for i in range(21):
             ge = GE_Channel(lam, miu, l1, l2, l3, l4)
+            ge.mmpp = True
             camera_list.append(ge)
         # M/M/1/1
         receive_series = np.zeros((21, 1))
